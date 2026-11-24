@@ -13,10 +13,17 @@
      int NUM_ROWS;
      int NNZ_S;
      int NNZ_V;
+
+    // For sparse attention SPTC block
+    const int* sparse_block_count;
+    const int* sparse_block_offset;
  };
  
  ////////////////////////////////////////////////////////////////////////////////////////////////////
  
- template<typename T, int Headdim, bool Is_causal> void run_mha_fwd_sparse_(Flash_fwd_params &params, cudaStream_t stream);
+template<typename T, int Headdim, bool Is_causal> void run_mha_fwd_sparse_(Flash_fwd_params &params, cudaStream_t stream);
+template<typename T, int Headdim, bool Is_causal> void run_mha_fwd_sparse_sptc_(Flash_fwd_params &params, cudaStream_t stream);
+template<int Headdim, bool Is_causal> void run_mha_fwd_sparse_int8_(Flash_fwd_params &params, cudaStream_t stream);
+template<int Headdim, bool Is_causal> void run_mha_fwd_sparse_sptc_int8_(Flash_fwd_params &params, cudaStream_t stream);
  
  }  // namespace FLASH_NAMESPACE

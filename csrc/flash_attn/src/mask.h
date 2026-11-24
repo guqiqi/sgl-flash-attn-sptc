@@ -211,4 +211,62 @@ struct Mask {
 
 };
 
+
+// Banded mask relative to the *tile left boundary*.
+//
+// For a score tile S of shape (kBlockM x kBlockN) with tile origins
+//   row_tile_origin = m_block * kBlockM
+//   col_tile_origin = start_n
+// this mask keeps (tile-local) columns in the inclusive range:
+//   col_rel ∈ [row_rel + StartOffset, row_rel + EndOffset]
+// and sets everything else to -INFINITY.
+//
+// Examples (kBlockM = 64, kBlockN = 128):
+// - StartOffset=0, EndOffset=63  => keep [i, i+63]
+// - StartOffset=1, EndOffset=63  => keep [i+1, i+63]
+// - StartOffset=2, EndOffset=63  => keep [i+2, i+63]
+template <int StartOffset, int EndOffset>
+struct BandedMask {
+    static_assert(EndOffset >= StartOffset, "EndOffset must be >= StartOffset");
+
+    template <typename Engine, typename Layout>
+    __forceinline__ __device__ void apply_mask(Tensor<Engine, Layout> &tensor_,
+                                               const int col_tile_origin,
+                                               const int row_tile_origin,
+                                               const int row_idx_offset,
+                                               const int warp_row_stride) {
+        static_assert(Layout::rank == 3, "Only support 3D Tensor");
+        static_assert(decltype(size<0>(tensor_))::value == 4, "First dimension must be 4");
+
+        Tensor tensor = make_tensor(tensor_.data(), FLASH_NAMESPACE::convert_layout_acc_rowcol(tensor_.layout()));
+
+        const int lane_id = threadIdx.x % 32;
+        const int col_idx_offset = col_tile_origin + (lane_id % 4) * 2;
+
+        #pragma unroll
+        for (int mi = 0; mi < size<0, 1>(tensor); ++mi) {
+            const int row_idx_base = row_idx_offset + mi * warp_row_stride;
+            #pragma unroll
+            for (int i = 0; i < size<0, 0>(tensor); ++i) {
+                const int row_idx = row_idx_base + i * 8;
+                const int row_rel = row_idx - row_tile_origin;
+                #pragma unroll
+                for (int nj = 0; nj < size<1, 1>(tensor); ++nj) {
+                    const int col_idx_base = col_idx_offset + nj * 8;
+                    #pragma unroll
+                    for (int j = 0; j < size<1, 0>(tensor); ++j) {
+                        const int col_idx = col_idx_base + j;
+                        const int col_rel = col_idx - col_tile_origin;
+                        // Keep col_rel in [row_rel + StartOffset, row_rel + EndOffset] inclusive.
+                        // Use half-open comparisons to avoid off-by-one mistakes.
+                        if (col_rel < row_rel + StartOffset || col_rel >= row_rel + EndOffset + 1) {
+                            tensor(make_coord(i, mi), make_coord(j, nj)) = -INFINITY;
+                        }
+                    }
+                }
+            }
+        }
+    }
+};
+
 } // namespace FLASH_NAMESPACE

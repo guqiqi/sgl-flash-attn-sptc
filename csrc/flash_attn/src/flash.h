@@ -149,6 +149,19 @@ struct Flash_fwd_params : public Qkv_params {
     int NUM_ROWS;
     int NNZ_S;
     int NNZ_V;
+    int sparse_block_size_m;
+    int sparse_block_size_n;
+
+    // For sparse attention SPTC block
+    const int* sparse_block_count;
+    const int* sparse_block_offset;
+
+    // INT8 quantization scales (used when Q/K/V are int8)
+    float scale_q;       // Q dequant scale: real_q = int8_q * scale_q
+    float scale_k;       // K dequant scale
+    float scale_v;       // V dequant scale
+    float scale_p;       // P quant scale (softmax output -> int8)
+    bool is_int8;        // whether this is an INT8 attention call
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -197,6 +210,9 @@ struct Flash_bwd_params : public Flash_fwd_params {
 
 template<typename T, int Headdim, bool Is_causal> void run_mha_fwd_(Flash_fwd_params &params, cudaStream_t stream);
 template<typename T, int Headdim, bool Is_causal> void run_mha_fwd_sparse_(Flash_fwd_params &params, cudaStream_t stream);
+template<typename T, int Headdim, bool Is_causal> void run_mha_fwd_sparse_sptc_(Flash_fwd_params &params, cudaStream_t stream);
+template<int Headdim, bool Is_causal> void run_mha_fwd_sparse_int8_(Flash_fwd_params &params, cudaStream_t stream);
+template<int Headdim, bool Is_causal> void run_mha_fwd_sparse_sptc_int8_(Flash_fwd_params &params, cudaStream_t stream);
 template<typename T, int Headdim, bool Is_causal> void run_mha_fwd_splitkv_dispatch(Flash_fwd_params &params, cudaStream_t stream);
 
 template<typename T, int Headdim, bool Is_causal> void run_mha_bwd_(Flash_bwd_params &params, cudaStream_t stream);

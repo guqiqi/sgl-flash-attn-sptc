@@ -48,7 +48,7 @@ inline __device__ void sparse_attn_1rowblock(const Params &params, const int bid
         n_block_max = std::min(n_block_max,
                                cute::ceil_div((m_block + 1) * kBlockM + binfo.actual_seqlen_k - binfo.actual_seqlen_q + params.window_size_right, kBlockN));
         // if (threadIdx.x == 0 && blockIdx.y == 0 && blockIdx.z == 0) {
-        //     printf("m_block = %d, n_block_max = %d\n", m_block, n_block_max);
+        //     printf("v1: m_block = %d, n_block_max = %d\n", m_block, n_block_max);
         // }
     }
     // We exit early and write 0 to gO and gLSE. This also covers the case where actual_seqlen_k == 0.
@@ -112,6 +112,7 @@ inline __device__ void sparse_attn_1rowblock(const Params &params, const int bid
 
     Tensor tQgQ = gmem_thr_copy_QKV.partition_S(gQ);
     Tensor tQsQ = gmem_thr_copy_QKV.partition_D(sQ);
+    
     Tensor tKgK = gmem_thr_copy_QKV.partition_S(gK);  // (KCPY, KCPY_N, KCPY_K, nblocksN)
     Tensor tKgKBlock = tKgK(_, _, _, 0);
     auto tKgKBlockData = tKgKBlock.data();
@@ -348,7 +349,7 @@ inline __device__ void sparse_attn_1rowblock(const Params &params, const int bid
             Tensor rP = flash::convert_type<Element>(acc_s);
             int block_row_idx = m_block * (kBlockM / 16) + tidx / 32;
             int block_col_idx = n_block * (kBlockN / 32);
-            if (Return_softmax) {
+            if constexpr (Return_softmax) {
                 Tensor rP_drop = make_fragment_like(rP);
                 cute::copy(rP, rP_drop);
                 dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
@@ -357,7 +358,7 @@ inline __device__ void sparse_attn_1rowblock(const Params &params, const int bid
                 cute::copy(rP_drop, tSgS);
                 tSgS.data() = tSgS.data() + (-kBlockN);
             }
-            if (Is_dropout) {
+            if constexpr (Is_dropout) {
                 dropout.apply_dropout(rP, block_row_idx, block_col_idx, kNWarps);
             }
 
@@ -407,7 +408,7 @@ inline __device__ void sparse_attn_1rowblock(const Params &params, const int bid
             Tensor rP = flash::convert_type<Element>(acc_s);
             int block_row_idx = m_block * (kBlockM / 16) + tidx / 32;
             int block_col_idx = n_block * (kBlockN / 32);
-            if (Return_softmax) {
+            if constexpr (Return_softmax) {
                 Tensor rP_drop = make_fragment_like(rP);
                 cute::copy(rP, rP_drop);
                 dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
@@ -416,7 +417,7 @@ inline __device__ void sparse_attn_1rowblock(const Params &params, const int bid
                 cute::copy(rP_drop, tSgS);
                 tSgS.data() = tSgS.data() + (-kBlockN);
             }
-            if (Is_dropout) {
+            if constexpr (Is_dropout) {
                 dropout.apply_dropout(rP, block_row_idx, block_col_idx, kNWarps);
             }
 
@@ -576,7 +577,7 @@ inline __device__ void sparse_attn_1rowblock(const Params &params, const int bid
             Tensor rP = flash::convert_type<Element>(acc_s);
             int block_row_idx = m_block * (kBlockM / 16) + tidx / 32;
             int block_col_idx = n_block * (kBlockN / 32);
-            if (Return_softmax) {
+            if constexpr (Return_softmax) {
                 Tensor rP_drop = make_fragment_like(rP);
                 cute::copy(rP, rP_drop);
                 dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
@@ -585,7 +586,7 @@ inline __device__ void sparse_attn_1rowblock(const Params &params, const int bid
                 cute::copy(rP_drop, tSgS);
                 tSgS.data() = tSgS.data() + (-kBlockN);
             }
-            if (Is_dropout) {
+            if constexpr (Is_dropout) {
                 dropout.apply_dropout(rP, block_row_idx, block_col_idx, kNWarps);
             }
 

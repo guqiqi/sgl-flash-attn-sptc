@@ -81,7 +81,9 @@ def _sparse_attn_forward(
     block_count: torch.Tensor,
     block_offset: torch.Tensor,
     column_count: torch.Tensor,
-    column_index: torch.Tensor, 
+    column_index: torch.Tensor,
+    block_size_m: int,
+    block_size_n: int,
     dropout_p: float,
     softmax_scale: float,
     causal: bool,
@@ -99,6 +101,53 @@ def _sparse_attn_forward(
         block_offset,
         column_count,
         column_index,
+        block_size_m,
+        block_size_n,
+        out,
+        alibi_slopes,
+        dropout_p,
+        softmax_scale,
+        causal,
+        softcap,
+        return_softmax,
+        None,
+    )
+    return out, softmax_lse
+
+@_torch_custom_op_wrapper("flash_attn::_sparse_attn_forward_sptc", mutates_args=(), device_types="cuda")
+def _sparse_attn_forward_sptc(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    block_count: torch.Tensor,
+    block_offset: torch.Tensor,
+    sparse_block_count: torch.Tensor,
+    sparse_block_offset: torch.Tensor,
+    column_count: torch.Tensor,
+    column_index: torch.Tensor, 
+    block_size_m: int,
+    block_size_n: int,
+    dropout_p: float,
+    softmax_scale: float,
+    causal: bool,
+    softcap: float,
+    alibi_slopes: Optional[torch.Tensor],
+    return_softmax: bool,
+    out: torch.Tensor = None
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    q, k, v = [maybe_contiguous(x) for x in (q, k, v)]
+    out, softmax_lse = flash_attn_gpu.fwd_sparse_sptc(
+        q,
+        k,
+        v,
+        block_count,
+        block_offset,
+        sparse_block_count,
+        sparse_block_offset,
+        column_count,
+        column_index,
+        block_size_m,
+        block_size_n,
         out,
         alibi_slopes,
         dropout_p,
@@ -911,6 +960,8 @@ class FlashSparseAttnFunc(torch.autograd.Function):
         block_offset,
         column_count,
         column_index,
+        block_size_m,
+        block_size_n,
         dropout_p,
         softmax_scale,
         causal,
@@ -930,6 +981,8 @@ class FlashSparseAttnFunc(torch.autograd.Function):
             block_offset,
             column_count,
             column_index,
+            block_size_m,
+            block_size_n,
             dropout_p,
             softmax_scale,
             causal=causal,
@@ -939,7 +992,54 @@ class FlashSparseAttnFunc(torch.autograd.Function):
             out=out,
         )
         return (out, softmax_lse) if return_softmax else out
-    
+
+class FlashSparseAttnSPTCFunc(torch.autograd.Function):
+    @staticmethod
+    def forward(
+        ctx,
+        q,
+        k,
+        v,
+        block_count,
+        block_offset,
+        sparse_block_count,
+        sparse_block_offset,
+        column_count,
+        column_index,
+        block_size_m,
+        block_size_n,
+        dropout_p,
+        softmax_scale,
+        causal,
+        softcap, # 0.0 means deactivated
+        alibi_slopes,
+        deterministic,
+        return_softmax,
+        out,
+    ):
+        if softmax_scale is None:
+            softmax_scale = q.shape[-1] ** (-0.5)
+        out, softmax_lse = _sparse_attn_forward_sptc(
+            q,
+            k,
+            v,
+            block_count,
+            block_offset,
+            sparse_block_count,
+            sparse_block_offset,
+            column_count,
+            column_index,
+            block_size_m,
+            block_size_n,
+            dropout_p,
+            softmax_scale,
+            causal=causal,
+            softcap=softcap,
+            alibi_slopes=alibi_slopes,
+            return_softmax=return_softmax and dropout_p > 0,
+            out=out,
+        )
+        return (out, softmax_lse) if return_softmax else out
 
 class FlashSparseAttnVarlenFunc(torch.autograd.Function):
     @staticmethod
@@ -1326,6 +1426,8 @@ def sparse_attn_func(
     block_offset,
     column_count,
     column_index,
+    block_size_m=64,
+    block_size_n=64,
     dropout_p=0.0,
     softmax_scale=None,
     causal=False,
@@ -1375,6 +1477,51 @@ def sparse_attn_func(
         block_offset,
         column_count,
         column_index,
+        block_size_m,
+        block_size_n,
+        dropout_p,
+        softmax_scale,
+        causal,
+        softcap,
+        alibi_slopes,
+        False, #deterministic
+        return_attn_probs,
+        out,
+    )
+
+def sparse_attn_func_sptc(
+    q,
+    k,
+    v,
+    block_count,
+    block_offset,
+    sparse_block_count,
+    sparse_block_offset,
+    column_count,
+    column_index,
+    block_size_m=64,
+    block_size_n=64,
+    dropout_p=0.0,
+    softmax_scale=None,
+    causal=False,
+    softcap=0.0, # 0.0 means deactivated
+    alibi_slopes=None,
+    deterministic=False,
+    return_attn_probs=False,
+    out=None,
+):
+    return FlashSparseAttnSPTCFunc.apply(
+        q,
+        k,
+        v,
+        block_count,
+        block_offset,
+        sparse_block_count,
+        sparse_block_offset,
+        column_count,
+        column_index,
+        block_size_m,
+        block_size_n,
         dropout_p,
         softmax_scale,
         causal,

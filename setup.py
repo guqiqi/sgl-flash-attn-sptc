@@ -274,6 +274,7 @@ if not SKIP_CUDA_BUILD and not IS_ROCM:
     ]
 
     compiler_c17_flag=["-O3", "-std=c++17"]
+
     # Add Windows-specific flags
     if sys.platform == "win32" and os.getenv('DISTUTILS_USE_SDK') == '1':
         nvcc_flags.extend(["-Xcompiler", "/Zc:__cplusplus"])
